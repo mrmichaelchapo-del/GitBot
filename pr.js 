@@ -1,0 +1,64 @@
+const { Octokit } = require("@octokit/rest");
+
+// pr.js
+//
+// Creates branches, commits changes, and opens pull requests.
+
+async function createPullRequest(context, { branchName, filePath, newContent, commitMessage, prTitle, prBody }) {
+  const { owner, repo } = context.repo();
+
+  // 1. Get default branch (usually main)
+  const repoData = await context.octokit.repos.get({ owner, repo });
+  const baseBranch = repoData.data.default_branch;
+
+  // 2. Get the latest commit SHA of the base branch
+  const baseRef = await context.octokit.git.getRef({
+    owner,
+    repo,
+    ref: `heads/${baseBranch}`
+  });
+
+  const latestCommitSha = baseRef.data.object.sha;
+
+  // 3. Create a new branch
+  await context.octokit.git.createRef({
+    owner,
+    repo,
+    ref: `refs/heads/${branchName}`,
+    sha: latestCommitSha
+  });
+
+  // 4. Get the file's current SHA (needed for updating)
+  const fileData = await context.octokit.repos.getContent({
+    owner,
+    repo,
+    path: filePath
+  });
+
+  const fileSha = fileData.data.sha;
+
+  // 5. Commit updated file
+  await context.octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: filePath,
+    message: commitMessage,
+    content: Buffer.from(newContent).toString("base64"),
+    sha: fileSha,
+    branch: branchName
+  });
+
+  // 6. Open the pull request
+  const pr = await context.octokit.pulls.create({
+    owner,
+    repo,
+    title: prTitle,
+    head: branchName,
+    base: baseBranch,
+    body: prBody
+  });
+
+  return pr.data.html_url;
+}
+
+module.exports = { createPullRequest };
